@@ -558,6 +558,33 @@ describe.each(["darwin", "win32"] as const)(
 			expect(bundleCompleteCount(bus)).toBe(2);
 		});
 
+		test("does not reload when a native event omits the filename", async ({
+			expect,
+		}) => {
+			const fsWatchers = mockFsWatch(expect);
+
+			const projectRoot = path.resolve(".");
+			const firstBundle = bus.waitFor("bundleComplete");
+			controller.onConfigUpdate({
+				type: "configUpdate",
+				config: assetsAt(projectRoot),
+			});
+			await firstBundle;
+			const fakeWatcher = await fsWatchers.at(0);
+
+			// Unnamed events cannot be attributed. Treating them as the assets
+			// root would bypass the ignore list for `.wrangler` writes.
+			fakeWatcher.emit("change", "change", null);
+			fakeWatcher.emit("change", "change", "");
+			await setTimeout(500);
+			expect(bundleCompleteCount(bus)).toBe(1);
+
+			const secondBundle = bus.waitFor("bundleComplete");
+			fakeWatcher.emit("change", "change", "index.html");
+			await secondBundle;
+			expect(bundleCompleteCount(bus)).toBe(2);
+		});
+
 		test("ignores a persist directory inside the assets tree", async ({
 			expect,
 		}) => {
@@ -586,6 +613,36 @@ describe.each(["darwin", "win32"] as const)(
 			await secondBundle;
 			expect(bundleCompleteCount(bus)).toBe(2);
 		});
+
+		test.skipIf(platform !== "win32")(
+			"ignores persist directory events that differ only in case",
+			async ({ expect }) => {
+				const fsWatchers = mockFsWatch(expect);
+
+				const projectRoot = path.resolve(".");
+				const persist = path.join(projectRoot, "persist-state");
+				const firstBundle = bus.waitFor("bundleComplete");
+				controller.onConfigUpdate({
+					type: "configUpdate",
+					config: assetsAt(projectRoot, persist),
+				});
+				await firstBundle;
+				const fakeWatcher = await fsWatchers.at(0);
+
+				fakeWatcher.emit(
+					"change",
+					"change",
+					path.join("Persist-State", "kv.sqlite")
+				);
+				await setTimeout(500);
+				expect(bundleCompleteCount(bus)).toBe(1);
+
+				const secondBundle = bus.waitFor("bundleComplete");
+				fakeWatcher.emit("change", "change", "index.html");
+				await secondBundle;
+				expect(bundleCompleteCount(bus)).toBe(2);
+			}
+		);
 
 		test("keeps watching when the persist path is the assets directory", async ({
 			expect,
