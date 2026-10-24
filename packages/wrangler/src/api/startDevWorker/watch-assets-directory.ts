@@ -73,10 +73,16 @@ function watchAssetsDirectoryRecursive(
 	const errorListeners: Array<(error: Error) => void> = [];
 
 	nativeWatcher.on("change", (_eventType, filename) => {
-		const filePath =
-			filename == null || filename === ""
-				? assetsDir
-				: path.resolve(assetsDir, filename.toString());
+		// Native backends can omit the filename. Falling back to `assetsDir`
+		// would make the ignore check always miss: `.wrangler` and persist
+		// live *inside* the assets tree when assets is the project root, so
+		// a write there would look like a change to the root and reload.
+		// Dropping the event is safer than a spurious refresh. Named events
+		// still hot-reload real asset edits.
+		if (filename == null || filename === "") {
+			return;
+		}
+		const filePath = path.resolve(assetsDir, filename.toString());
 		if (ignoredDirs.some((dir) => isPathInsideDir(filePath, dir))) {
 			return;
 		}
@@ -115,14 +121,32 @@ function watchAssetsDirectoryRecursive(
 }
 
 /**
+ * Resolve a path for watcher ignore checks. Windows paths that differ
+ * only by case name the same directory, so fold case on `win32`.
+ */
+function comparablePath(filePath: string): string {
+	const resolved = path.resolve(filePath);
+	return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+/**
+ * Whether two paths name the same directory after platform normalization.
+ */
+export function isSameWatchPath(left: string, right: string): boolean {
+	return comparablePath(left) === comparablePath(right);
+}
+
+/**
  * Whether `target` is `dir` or a path inside it.
  *
  * A prefix check that requires a path separator after `dir` so that
- * `.wrangler-backup` is not treated as inside `.wrangler`.
+ * `.wrangler-backup` is not treated as inside `.wrangler`. On Windows
+ * the comparison is case-insensitive so persist directories reported
+ * with different capitalization are still ignored.
  */
 function isPathInsideDir(target: string, dir: string): boolean {
-	const resolvedDir = path.resolve(dir);
-	const resolvedTarget = path.resolve(target);
+	const resolvedDir = comparablePath(dir);
+	const resolvedTarget = comparablePath(target);
 	const prefix = resolvedDir.endsWith(path.sep)
 		? resolvedDir
 		: resolvedDir + path.sep;

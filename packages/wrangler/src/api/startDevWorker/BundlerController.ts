@@ -25,7 +25,10 @@ import { debounce } from "../../utils/debounce";
 import { isAbortError } from "../../utils/isAbortError";
 import { Controller } from "./BaseController";
 import { castErrorCause } from "./events";
-import { watchAssetsDirectory } from "./watch-assets-directory";
+import {
+	isSameWatchPath,
+	watchAssetsDirectory,
+} from "./watch-assets-directory";
 import type { BundleResult } from "../../deployment-bundle/bundle";
 import type { EsbuildBundle } from "../../dev/use-esbuild";
 import type { ConfigUpdateEvent } from "./events";
@@ -571,7 +574,7 @@ export class BundlerController extends Controller {
 			// Drop a write directory only when it is the assets directory, or
 			// the watcher would ignore the tree it was created to watch.
 			const ignoredDirs = getDevSessionWriteDirs(config).filter(
-				(dir) => path.resolve(dir) !== assetsDir
+				(dir) => !isSameWatchPath(dir, assetsDir)
 			);
 			const watcher = watchAssetsDirectory(assetsDir, ignoredDirs)
 				.on("all", (eventName, filePath) => {
